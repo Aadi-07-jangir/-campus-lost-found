@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  # ── AI Model Server ──
+  ai-server:
+    build: ./ai_server
+    container_name: clf-ai-server
+    ports:
+      - "8000:8000"
+    volumes:
+      - ai_model_cache:/app/model_cache
+    environment:
+      - MODEL_CACHE=/app/model_cache
+      - MATCH_THRESHOLD=0.75
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+    # Uncomment for GPU support:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # ── Appwrite (self-hosted, optional) ──
+  # If using Appwrite Cloud, remove this service.
+  # See: https://appwrite.io/docs/self-hosting
+
+volumes:
+  ai_model_cache:

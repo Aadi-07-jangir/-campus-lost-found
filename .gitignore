@@ -1,0 +1,26 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Flutter
+flutter_app/build/
+flutter_app/.dart_tool/
+flutter_app/.flutter-plugins
+flutter_app/.flutter-plugins-dependencies
+flutter_app/.packages
+
+# Python
+ai_server/__pycache__/
+ai_server/venv/
+ai_server/model_cache/
+ai_server/*.pyc
+ai_server/test_*.py
+
+# Environment
+.env
+*.log
