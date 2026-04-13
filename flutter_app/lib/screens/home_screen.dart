@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/chat_contact_model.dart';
 import '../models/item_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/items_provider.dart';
@@ -8,6 +9,7 @@ import '../services/database_service.dart';
 import '../utils/categories.dart';
 import '../utils/theme.dart';
 import '../widgets/item_card.dart';
+import 'chat_screen.dart';
 import 'item_detail_screen.dart';
 import 'login_screen.dart';
 import 'report_item_screen.dart';
@@ -416,7 +418,7 @@ class _TopBox extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: AppTheme.danger,
                           shape: BoxShape.circle,
-                          border: Border.all(color: AppTheme.bgDark, width: 2),
+                          border: Border.all(color: AppTheme.surface, width: 2),
                         ),
                         constraints: const BoxConstraints(
                           minWidth: 20,
@@ -665,7 +667,7 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-class _ProfileTab extends StatelessWidget {
+class _ProfileTab extends StatefulWidget {
   final AuthProvider auth;
   final ItemsProvider itemsProvider;
 
@@ -675,99 +677,452 @@ class _ProfileTab extends StatelessWidget {
   });
 
   @override
+  State<_ProfileTab> createState() => _ProfileTabState();
+}
+
+class _ProfileTabState extends State<_ProfileTab> {
+  final _db = DatabaseService();
+  List<_ChatEntry> _chatEntries = [];
+  bool _loadingChats = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAllChats();
+  }
+
+  Future<void> _loadAllChats() async {
+    try {
+      final myItems = widget.itemsProvider.myItems;
+      final entries = <_ChatEntry>[];
+      for (final item in myItems) {
+        final contacts = await _db.getItemChatContacts(item.id);
+        for (final contact in contacts) {
+          entries.add(_ChatEntry(
+            item: item,
+            contact: contact,
+          ));
+        }
+      }
+      // Sort by most recent message
+      entries.sort((a, b) =>
+          b.contact.lastMessageAt.compareTo(a.contact.lastMessageAt));
+      if (mounted) {
+        setState(() {
+          _chatEntries = entries;
+          _loadingChats = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingChats = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final myItems = itemsProvider.myItems;
+    final myItems = widget.itemsProvider.myItems;
     final lost = myItems.where((item) => item.isLost).length;
     final found = myItems.where((item) => item.isFound).length;
-    final claimed = myItems.where((item) => item.status == 'claimed' || item.status == 'returned').length;
+    final claimed = myItems
+        .where(
+            (item) => item.status == 'claimed' || item.status == 'returned')
+        .length;
+    final totalUnread =
+        _chatEntries.fold<int>(0, (sum, e) => sum + e.contact.unreadCount);
 
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(gradient: AppTheme.heroGradient),
         child: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Row(
-                children: [
-                  Text('Profile',
-                      style: Theme.of(context).textTheme.headlineMedium),
-                  const Spacer(),
-                  IconButton(
-                    onPressed: () async {
-                      await auth.logout();
-                      if (!context.mounted) return;
-                      Navigator.of(context).pushAndRemoveUntil(
-                        MaterialPageRoute(builder: (_) => const LoginScreen()),
-                        (_) => false,
-                      );
-                    },
-                    icon: const Icon(Icons.logout_rounded),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  gradient: AppTheme.panelGradient,
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: AppTheme.border),
-                ),
-                child: Column(
+          child: RefreshIndicator(
+            onRefresh: _loadAllChats,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Row(
                   children: [
-                    CircleAvatar(
-                      radius: 34,
-                      backgroundColor: AppTheme.surfaceMuted,
-                      child: Text(
-                        auth.userName.isNotEmpty
-                            ? auth.userName[0].toUpperCase()
-                            : '?',
-                        style: const TextStyle(
-                          color: AppTheme.primary,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
+                    Text('Profile',
+                        style: Theme.of(context).textTheme.headlineMedium),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () async {
+                        await widget.auth.logout();
+                        if (!context.mounted) return;
+                        Navigator.of(context).pushAndRemoveUntil(
+                          MaterialPageRoute(
+                              builder: (_) => const LoginScreen()),
+                          (_) => false,
+                        );
+                      },
+                      icon: const Icon(Icons.logout_rounded),
                     ),
-                    const SizedBox(height: 14),
-                    Text(auth.userName,
-                        style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: 4),
-                    Text(auth.userEmail,
-                        style: Theme.of(context).textTheme.bodyMedium),
                   ],
                 ),
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                      child: _StatCard(
-                          label: 'Posts',
-                          value: '${myItems.length}',
-                          color: AppTheme.primary)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                      child: _StatCard(
-                          label: 'Lost',
-                          value: '$lost',
-                          color: AppTheme.lostColor)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                      child: _StatCard(
-                          label: 'Found',
-                          value: '$found',
-                          color: AppTheme.foundColor)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                      child: _StatCard(
-                          label: 'Claimed',
-                          value: '$claimed',
-                          color: AppTheme.success)),
-                ],
-              ),
-            ],
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: AppTheme.panelGradient,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: AppTheme.border),
+                  ),
+                  child: Column(
+                    children: [
+                      CircleAvatar(
+                        radius: 34,
+                        backgroundColor: AppTheme.surfaceMuted,
+                        child: Text(
+                          widget.auth.userName.isNotEmpty
+                              ? widget.auth.userName[0].toUpperCase()
+                              : '?',
+                          style: const TextStyle(
+                            color: AppTheme.primary,
+                            fontSize: 28,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(widget.auth.userName,
+                          style: Theme.of(context).textTheme.titleLarge),
+                      const SizedBox(height: 4),
+                      Text(widget.auth.userEmail,
+                          style: Theme.of(context).textTheme.bodyMedium),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                        child: _StatCard(
+                            label: 'Posts',
+                            value: '${myItems.length}',
+                            color: AppTheme.primary)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                        child: _StatCard(
+                            label: 'Lost',
+                            value: '$lost',
+                            color: AppTheme.lostColor)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                        child: _StatCard(
+                            label: 'Found',
+                            value: '$found',
+                            color: AppTheme.foundColor)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                        child: _StatCard(
+                            label: 'Claimed',
+                            value: '$claimed',
+                            color: AppTheme.success)),
+                  ],
+                ),
+
+                // ─── Messages Section ───
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    gradient: AppTheme.panelGradient,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: AppTheme.border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primary.withOpacity(0.14),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(Icons.chat_rounded,
+                                color: AppTheme.primary, size: 22),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Messages',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${_chatEntries.length} conversation${_chatEntries.length == 1 ? '' : 's'}${totalUnread > 0 ? ' · $totalUnread unread' : ''}',
+                                  style:
+                                      Theme.of(context).textTheme.bodyMedium,
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (totalUnread > 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: AppTheme.danger,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                '$totalUnread',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      if (_loadingChats)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 20),
+                          child:
+                              Center(child: CircularProgressIndicator()),
+                        )
+                      else if (_chatEntries.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                          child: Center(
+                            child: Text(
+                              'No messages yet',
+                              style:
+                                  Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ),
+                        )
+                      else ...[
+                        const SizedBox(height: 14),
+                        ...List.generate(
+                          _chatEntries.length,
+                          (i) {
+                            final entry = _chatEntries[i];
+                            return Padding(
+                              padding: EdgeInsets.only(
+                                  top: i == 0 ? 0 : 10),
+                              child: InkWell(
+                                borderRadius:
+                                    BorderRadius.circular(16),
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => ChatScreen(
+                                        itemId: entry.item.id,
+                                        itemTitle:
+                                            entry.item.title,
+                                        otherUserId: entry
+                                            .contact.otherUserId,
+                                        otherUserName: entry
+                                            .contact
+                                            .otherUserName,
+                                      ),
+                                    ),
+                                  ).then((_) => _loadAllChats());
+                                },
+                                child: Container(
+                                  padding:
+                                      const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.surfaceMuted
+                                        .withOpacity(0.5),
+                                    borderRadius:
+                                        BorderRadius.circular(16),
+                                    border: Border.all(
+                                        color: entry.contact
+                                                    .unreadCount >
+                                                0
+                                            ? AppTheme.primary
+                                                .withOpacity(0.4)
+                                            : AppTheme.border),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      CircleAvatar(
+                                        radius: 20,
+                                        backgroundColor:
+                                            AppTheme.primary
+                                                .withOpacity(
+                                                    0.14),
+                                        child: Text(
+                                          entry.contact
+                                                  .otherUserName
+                                                  .isNotEmpty
+                                              ? entry.contact
+                                                  .otherUserName[
+                                                      0]
+                                                  .toUpperCase()
+                                              : '?',
+                                          style:
+                                              const TextStyle(
+                                            color:
+                                                AppTheme.primary,
+                                            fontWeight:
+                                                FontWeight.w800,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment
+                                                  .start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    entry.contact
+                                                        .otherUserName,
+                                                    style:
+                                                        const TextStyle(
+                                                      color: AppTheme
+                                                          .textPrimary,
+                                                      fontWeight:
+                                                          FontWeight
+                                                              .w700,
+                                                      fontSize:
+                                                          14,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow
+                                                            .ellipsis,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  _timeAgo(entry
+                                                      .contact
+                                                      .lastMessageAt),
+                                                  style:
+                                                      const TextStyle(
+                                                    color: AppTheme
+                                                        .textHint,
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(
+                                                height: 4),
+                                            Row(
+                                              children: [
+                                                Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal:
+                                                          6,
+                                                      vertical:
+                                                          2),
+                                                  decoration:
+                                                      BoxDecoration(
+                                                    color: (entry.item.isLost
+                                                            ? AppTheme
+                                                                .lostColor
+                                                            : AppTheme
+                                                                .foundColor)
+                                                        .withOpacity(
+                                                            0.14),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            6),
+                                                  ),
+                                                  child: Text(
+                                                    entry.item
+                                                        .title,
+                                                    style:
+                                                        TextStyle(
+                                                      color: entry.item.isLost
+                                                          ? AppTheme
+                                                              .lostColor
+                                                          : AppTheme
+                                                              .foundColor,
+                                                      fontSize:
+                                                          10,
+                                                      fontWeight:
+                                                          FontWeight
+                                                              .w700,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow
+                                                            .ellipsis,
+                                                  ),
+                                                ),
+                                                const SizedBox(
+                                                    width: 6),
+                                                Expanded(
+                                                  child: Text(
+                                                    entry.contact
+                                                        .lastMessage,
+                                                    style:
+                                                        const TextStyle(
+                                                      color: AppTheme
+                                                          .textSecondary,
+                                                      fontSize:
+                                                          12,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow
+                                                            .ellipsis,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (entry.contact
+                                              .unreadCount >
+                                          0)
+                                        Container(
+                                          margin:
+                                              const EdgeInsets
+                                                  .only(
+                                                  left: 8),
+                                          padding:
+                                              const EdgeInsets
+                                                  .all(8),
+                                          decoration:
+                                              const BoxDecoration(
+                                            color:
+                                                AppTheme.primary,
+                                            shape:
+                                                BoxShape.circle,
+                                          ),
+                                          child: Text(
+                                            '${entry.contact.unreadCount}',
+                                            style:
+                                                const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 11,
+                                              fontWeight:
+                                                  FontWeight
+                                                      .w800,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
           ),
         ),
       ),
@@ -818,4 +1173,20 @@ class _StatCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Helper to group a chat contact with its parent item.
+class _ChatEntry {
+  final ItemModel item;
+  final ChatContactModel contact;
+  const _ChatEntry({required this.item, required this.contact});
+}
+
+String _timeAgo(DateTime dt) {
+  final diff = DateTime.now().difference(dt);
+  if (diff.inMinutes < 1) return 'now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes}m';
+  if (diff.inHours < 24) return '${diff.inHours}h';
+  if (diff.inDays < 7) return '${diff.inDays}d';
+  return '${dt.day}/${dt.month}';
 }
