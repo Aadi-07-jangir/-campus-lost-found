@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/item_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/items_provider.dart';
+import '../services/database_service.dart';
+import '../utils/categories.dart';
 import '../utils/theme.dart';
 import '../widgets/item_card.dart';
 import 'item_detail_screen.dart';
@@ -19,6 +22,10 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   String _filter = 'all';
+  String _searchQuery = '';
+  String? _categoryFilter;
+  int _unreadCount = 0;
+  final _searchController = TextEditingController();
 
   @override
   void initState() {
@@ -26,18 +33,68 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ItemsProvider>().fetchItems();
       context.read<ItemsProvider>().fetchMyItems();
+      _loadUnreadCount();
     });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadUnreadCount() async {
+    // Count unread messages across all items
+    try {
+      final itemsProvider = context.read<ItemsProvider>();
+      final myItems = itemsProvider.myItems;
+      int total = 0;
+      final db = DatabaseService();
+      for (final item in myItems) {
+        final contacts = await db.getItemChatContacts(item.id);
+        for (final contact in contacts) {
+          total += contact.unreadCount;
+        }
+      }
+      if (mounted) setState(() => _unreadCount = total);
+    } catch (_) {}
+  }
+
+  List<ItemModel> _getFilteredItems(ItemsProvider provider) {
+    // Step 1: Type filter (all / lost / found)
+    List<ItemModel> items = _filter == 'all'
+        ? provider.allItems
+        : _filter == 'lost'
+            ? provider.lostItems
+            : provider.foundItems;
+
+    // Step 2: Category filter
+    if (_categoryFilter != null) {
+      items = items.where((item) {
+        final cat = ItemCategory.detect(item.title, item.description);
+        return cat.name == _categoryFilter;
+      }).toList();
+    }
+
+    // Step 3: Search filter
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      items = items.where((item) {
+        return item.title.toLowerCase().contains(query) ||
+            item.description.toLowerCase().contains(query) ||
+            (item.location?.toLowerCase().contains(query) ?? false) ||
+            item.userName.toLowerCase().contains(query);
+      }).toList();
+    }
+
+    return items;
   }
 
   @override
   Widget build(BuildContext context) {
     final itemsProvider = context.watch<ItemsProvider>();
     final auth = context.watch<AuthProvider>();
-    final items = _filter == 'all'
-        ? itemsProvider.allItems
-        : _filter == 'lost'
-            ? itemsProvider.lostItems
-            : itemsProvider.foundItems;
+    final items = _getFilteredItems(itemsProvider);
 
     return Scaffold(
       body: _tab == 3
@@ -47,15 +104,64 @@ class _HomeScreenState extends State<HomeScreen> {
               child: SafeArea(
                 child: Column(
                   children: [
+                    // ─── Top Header with Notification Bell ───
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
                       child: _TopBox(
                         name: auth.userName.split(' ').first,
-                        count: items.length,
+                        allItems: itemsProvider.allItems,
+                        lostCount: itemsProvider.lostItems.length,
+                        foundCount: itemsProvider.foundItems.length,
                         filter: _filter,
+                        unreadCount: _unreadCount,
                       ),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 12),
+
+                    // ─── Search Bar ───
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: AppTheme.cardBg,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppTheme.border),
+                        ),
+                        child: TextField(
+                          controller: _searchController,
+                          onChanged: (v) => setState(() => _searchQuery = v),
+                          style: const TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontSize: 14,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: 'Search items, locations, people...',
+                            hintStyle: const TextStyle(
+                              color: AppTheme.textHint,
+                              fontSize: 14,
+                            ),
+                            prefixIcon: const Icon(Icons.search_rounded,
+                                color: AppTheme.primary, size: 22),
+                            suffixIcon: _searchQuery.isNotEmpty
+                                ? IconButton(
+                                    onPressed: () {
+                                      _searchController.clear();
+                                      setState(() => _searchQuery = '');
+                                    },
+                                    icon: const Icon(Icons.close_rounded,
+                                        color: AppTheme.textHint, size: 20),
+                                  )
+                                : null,
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 14),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // ─── Type Filter Chips (All / Lost / Found) ───
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Row(
@@ -80,14 +186,52 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
+
+                    // ─── Category Scroll Chips ───
+                    SizedBox(
+                      height: 38,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        children: [
+                          _CatChip(
+                            label: 'All',
+                            icon: Icons.apps_rounded,
+                            color: AppTheme.primary,
+                            active: _categoryFilter == null,
+                            onTap: () =>
+                                setState(() => _categoryFilter = null),
+                          ),
+                          ...ItemCategory.all.map((cat) => Padding(
+                                padding: const EdgeInsets.only(left: 8),
+                                child: _CatChip(
+                                  label: cat.name,
+                                  icon: cat.icon,
+                                  color: cat.color,
+                                  active: _categoryFilter == cat.name,
+                                  onTap: () => setState(
+                                      () => _categoryFilter = cat.name),
+                                ),
+                              )),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    // ─── Items List ───
                     Expanded(
                       child: itemsProvider.isLoading
                           ? const Center(child: CircularProgressIndicator())
                           : items.isEmpty
-                              ? const _EmptyState()
+                              ? _EmptyState(
+                                  hasSearch: _searchQuery.isNotEmpty ||
+                                      _categoryFilter != null)
                               : RefreshIndicator(
-                                  onRefresh: () => itemsProvider.fetchItems(),
+                                  onRefresh: () async {
+                                    await itemsProvider.fetchItems();
+                                    await _loadUnreadCount();
+                                  },
                                   child: ListView.builder(
                                     padding: const EdgeInsets.fromLTRB(
                                         16, 6, 16, 110),
@@ -130,6 +274,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (result == true) {
                   itemsProvider.fetchItems();
                   itemsProvider.fetchMyItems();
+                  _loadUnreadCount();
                 }
               },
               backgroundColor: AppTheme.primary,
@@ -145,34 +290,76 @@ class _HomeScreenState extends State<HomeScreen> {
           if (index == 1) _filter = 'lost';
           if (index == 2) _filter = 'found';
         }),
-        items: const [
-          BottomNavigationBarItem(
+        items: [
+          const BottomNavigationBarItem(
               icon: Icon(Icons.home_rounded), label: 'Feed'),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
               icon: Icon(Icons.search_off_rounded), label: 'Lost'),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
               icon: Icon(Icons.inventory_2_outlined), label: 'Found'),
           BottomNavigationBarItem(
-              icon: Icon(Icons.person_outline_rounded), label: 'Profile'),
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.person_outline_rounded),
+                if (_unreadCount > 0)
+                  Positioned(
+                    right: -6,
+                    top: -4,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                        color: AppTheme.danger,
+                        shape: BoxShape.circle,
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
+                      ),
+                      child: Text(
+                        _unreadCount > 9 ? '9+' : '$_unreadCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            label: 'Profile',
+          ),
         ],
       ),
     );
   }
 }
 
+// ─── Top Header / Stats Dashboard ──────────────────────────────────
 class _TopBox extends StatelessWidget {
   final String name;
-  final int count;
+  final List<ItemModel> allItems;
+  final int lostCount;
+  final int foundCount;
   final String filter;
+  final int unreadCount;
 
   const _TopBox({
     required this.name,
-    required this.count,
+    required this.allItems,
+    required this.lostCount,
+    required this.foundCount,
     required this.filter,
+    required this.unreadCount,
   });
 
   @override
   Widget build(BuildContext context) {
+    final claimed = allItems.where((i) => i.status == 'claimed' || i.status == 'returned').length;
+    final recoveryRate = allItems.isEmpty ? 0 : ((claimed / allItems.length) * 100).round();
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -187,38 +374,97 @@ class _TopBox extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Hello, $name',
-                    style: Theme.of(context).textTheme.headlineMedium),
-                const SizedBox(height: 6),
-                Text(
-                  'A clean national-level campus recovery dashboard.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 14),
-                Row(
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _HeaderMetric(label: 'Posts', value: '$count'),
-                    const SizedBox(width: 10),
-                    _HeaderMetric(label: 'View', value: filter.toUpperCase()),
+                    Text('Hello, $name',
+                        style: Theme.of(context).textTheme.headlineMedium),
+                    const SizedBox(height: 6),
+                    Text(
+                      'AI-Powered Campus Recovery Dashboard',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
                   ],
                 ),
-              ],
-            ),
+              ),
+              // Notification Bell
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: AppTheme.accentGradient,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(Icons.notifications_rounded,
+                        color: Colors.white, size: 24),
+                  ),
+                  if (unreadCount > 0)
+                    Positioned(
+                      right: -4,
+                      top: -4,
+                      child: Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          color: AppTheme.danger,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppTheme.bgDark, width: 2),
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 20,
+                          minHeight: 20,
+                        ),
+                        child: Text(
+                          unreadCount > 9 ? '9+' : '$unreadCount',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
           ),
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              gradient: AppTheme.accentGradient,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(Icons.dashboard_customize_rounded, color: Colors.white),
+          const SizedBox(height: 14),
+          // ─── Stats Row ───
+          Row(
+            children: [
+              _StatMini(
+                  icon: Icons.article_rounded,
+                  label: 'Total',
+                  value: '${allItems.length}',
+                  color: AppTheme.primary),
+              const SizedBox(width: 8),
+              _StatMini(
+                  icon: Icons.search_off_rounded,
+                  label: 'Lost',
+                  value: '$lostCount',
+                  color: AppTheme.lostColor),
+              const SizedBox(width: 8),
+              _StatMini(
+                  icon: Icons.handshake_rounded,
+                  label: 'Found',
+                  value: '$foundCount',
+                  color: AppTheme.foundColor),
+              const SizedBox(width: 8),
+              _StatMini(
+                  icon: Icons.trending_up_rounded,
+                  label: 'Recovery',
+                  value: '$recoveryRate%',
+                  color: AppTheme.success),
+            ],
           ),
         ],
       ),
@@ -226,36 +472,48 @@ class _TopBox extends StatelessWidget {
   }
 }
 
-class _HeaderMetric extends StatelessWidget {
+class _StatMini extends StatelessWidget {
+  final IconData icon;
   final String label;
   final String value;
+  final Color color;
 
-  const _HeaderMetric({
+  const _StatMini({
+    required this.icon,
     required this.label,
     required this.value,
+    required this.color,
   });
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
         decoration: BoxDecoration(
-          color: AppTheme.surfaceMuted,
+          color: color.withOpacity(0.08),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppTheme.border),
+          border: Border.all(color: color.withOpacity(0.18)),
         ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 4),
+            Icon(icon, size: 18, color: color),
+            const SizedBox(height: 6),
             Text(
               value,
-              style: const TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
+              style: TextStyle(
+                color: color,
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                color: color.withOpacity(0.7),
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -264,6 +522,59 @@ class _HeaderMetric extends StatelessWidget {
     );
   }
 }
+
+// ─── Category Chip ──────────────────────────────────────────────
+class _CatChip extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _CatChip({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: active ? color.withOpacity(0.18) : AppTheme.cardBg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: active ? color : AppTheme.border,
+            width: active ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: active ? color : AppTheme.textHint),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: active ? color : AppTheme.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Existing widgets (unchanged) ───────────────────────────────
 
 class _FilterChip extends StatelessWidget {
   final String label;
@@ -307,7 +618,8 @@ class _FilterChip extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  final bool hasSearch;
+  const _EmptyState({this.hasSearch = false});
 
   @override
   Widget build(BuildContext context) {
@@ -330,14 +642,19 @@ class _EmptyState extends StatelessWidget {
                 color: AppTheme.surfaceMuted,
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: const Icon(Icons.inbox_outlined,
-                  color: AppTheme.primary, size: 30),
+              child: Icon(
+                  hasSearch ? Icons.search_off_rounded : Icons.inbox_outlined,
+                  color: AppTheme.primary,
+                  size: 30),
             ),
             const SizedBox(height: 16),
-            Text('No items yet', style: Theme.of(context).textTheme.titleLarge),
+            Text(hasSearch ? 'No results found' : 'No items yet',
+                style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
               Text(
-              'Report a lost or found item to start this command center.',
+              hasSearch
+                  ? 'Try a different search term or filter.'
+                  : 'Report a lost or found item to start this command center.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
@@ -362,6 +679,7 @@ class _ProfileTab extends StatelessWidget {
     final myItems = itemsProvider.myItems;
     final lost = myItems.where((item) => item.isLost).length;
     final found = myItems.where((item) => item.isFound).length;
+    final claimed = myItems.where((item) => item.status == 'claimed' || item.status == 'returned').length;
 
     return Scaffold(
       body: Container(
@@ -426,11 +744,27 @@ class _ProfileTab extends StatelessWidget {
                 children: [
                   Expanded(
                       child: _StatCard(
-                          label: 'Posts', value: '${myItems.length}')),
+                          label: 'Posts',
+                          value: '${myItems.length}',
+                          color: AppTheme.primary)),
                   const SizedBox(width: 10),
-                  Expanded(child: _StatCard(label: 'Lost', value: '$lost')),
+                  Expanded(
+                      child: _StatCard(
+                          label: 'Lost',
+                          value: '$lost',
+                          color: AppTheme.lostColor)),
                   const SizedBox(width: 10),
-                  Expanded(child: _StatCard(label: 'Found', value: '$found')),
+                  Expanded(
+                      child: _StatCard(
+                          label: 'Found',
+                          value: '$found',
+                          color: AppTheme.foundColor)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                      child: _StatCard(
+                          label: 'Claimed',
+                          value: '$claimed',
+                          color: AppTheme.success)),
                 ],
               ),
             ],
@@ -444,10 +778,12 @@ class _ProfileTab extends StatelessWidget {
 class _StatCard extends StatelessWidget {
   final String label;
   final String value;
+  final Color color;
 
   const _StatCard({
     required this.label,
     required this.value,
+    this.color = AppTheme.textPrimary,
   });
 
   @override
@@ -455,16 +791,16 @@ class _StatCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16),
       decoration: BoxDecoration(
-        gradient: AppTheme.glassGradient,
+        color: color.withOpacity(0.08),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.border),
+        border: Border.all(color: color.withOpacity(0.18)),
       ),
       child: Column(
         children: [
           Text(
             value,
-            style: const TextStyle(
-              color: AppTheme.textPrimary,
+            style: TextStyle(
+              color: color,
               fontSize: 20,
               fontWeight: FontWeight.w800,
             ),
@@ -472,8 +808,8 @@ class _StatCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             label,
-            style: const TextStyle(
-              color: AppTheme.textSecondary,
+            style: TextStyle(
+              color: color.withOpacity(0.7),
               fontSize: 12,
               fontWeight: FontWeight.w700,
             ),

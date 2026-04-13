@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../models/item_model.dart';
+import '../utils/categories.dart';
 import '../utils/theme.dart';
 
 class ItemCard extends StatelessWidget {
@@ -20,6 +21,7 @@ class ItemCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = item.isLost ? AppTheme.lostColor : AppTheme.foundColor;
     final timeAgo = _timeAgo(item.createdAt);
+    final category = ItemCategory.detect(item.title, item.description);
 
     return Material(
       color: Colors.transparent,
@@ -99,6 +101,8 @@ class ItemCard extends StatelessWidget {
                       Row(
                         children: [
                           _Tag(label: item.type.toUpperCase(), color: accent),
+                          const SizedBox(width: 6),
+                          _CategoryTag(category: category),
                           const Spacer(),
                           const Icon(
                             Icons.arrow_forward_ios_rounded,
@@ -228,6 +232,38 @@ class _MutedTag extends StatelessWidget {
           fontSize: 10,
           fontWeight: FontWeight.w700,
         ),
+      ),
+    );
+  }
+}
+
+class _CategoryTag extends StatelessWidget {
+  final ItemCategory category;
+  const _CategoryTag({required this.category});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: category.color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: category.color.withOpacity(0.22)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(category.icon, size: 11, color: category.color),
+          const SizedBox(width: 4),
+          Text(
+            category.name,
+            style: TextStyle(
+              color: category.color,
+              fontSize: 9,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
       ),
     );
   }
