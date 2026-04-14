@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Campus Lost & Found — Methodology & Implementation Report</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', Arial, sans-serif;
+      color: #1a1a2e;
+      background: #fff;
+      line-height: 1.7;
+      padding: 40px 60px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    @media print {
+      body { padding: 20px 40px; }
+      .page-break { page-break-before: always; }
+    }
+
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      color: #6C3CE1;
+      text-align: center;
+      margin-bottom: 4px;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 30px;
+    }
+
+    h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1a1a2e;
+      margin-top: 32px;
+      margin-bottom: 14px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid #6C3CE1;
+    }
+
+    h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+      margin-top: 20px;
+      margin-bottom: 8px;
+    }
+
+    p, li {
+      font-size: 13.5px;
+      color: #333;
+    }
+
+    p { margin-bottom: 10px; }
+
+    ul, ol {
+      margin-left: 22px;
+      margin-bottom: 12px;
+    }
+
+    li { margin-bottom: 6px; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0 20px 0;
+      font-size: 13px;
+    }
+
+    th {
+      background: #6C3CE1;
+      color: #fff;
+      font-weight: 600;
+      padding: 10px 14px;
+      text-align: left;
+    }
+
+    td {
+      padding: 9px 14px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    tr:nth-child(even) td { background: #f8f6ff; }
+
+    .badge {
+      display: inline-block;
+      background: #f0ebff;
+      color: #6C3CE1;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .diagram-box {
+      background: #f8f6ff;
+      border: 1px solid #e0d8f5;
+      border-radius: 8px;
+      padding: 20px;
+      margin: 16px 0;
+      text-align: center;
+      font-family: monospace;
+      font-size: 13px;
+      line-height: 2;
+    }
+
+    .diagram-box .arrow { color: #6C3CE1; font-weight: bold; }
+
+    .link { color: #6C3CE1; text-decoration: none; }
+    .link:hover { text-decoration: underline; }
+
+    .footer {
+      margin-top: 40px;
+      text-align: center;
+      font-size: 11px;
+      color: #999;
+      border-top: 1px solid #eee;
+      padding-top: 16px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Campus Lost & Found</h1>
+  <p class="subtitle">AI-Powered Item Recovery System — Methodology & Implementation Report</p>
+
+  <!-- ─── SECTION 3: METHODOLOGY ─────────────────────────── -->
+  <h2>Section 3: Methodology</h2>
+
+  <h3>3.1 Problem Approach</h3>
+  <p>
+    We use a <strong>dual-model AI pipeline</strong> that combines computer vision and natural language processing
+    to automatically match lost items with found items based on visual and textual similarity, eliminating
+    the need for manual searching.
+  </p>
+
+  <h3>3.2 AI Models Used</h3>
+  <table>
+    <tr>
+      <th>Model</th>
+      <th>Purpose</th>
+      <th>Output</th>
+    </tr>
+    <tr>
+      <td><strong>BLIP</strong><br><span class="badge">Salesforce/blip-image-captioning-base</span></td>
+      <td>Automatically generates natural-language captions from uploaded item images (e.g., "a black leather wallet on a bench")</td>
+      <td>Text caption (up to 100 tokens)</td>
+    </tr>
+    <tr>
+      <td><strong>CLIP</strong><br><span class="badge">openai/clip-vit-base-patch32</span></td>
+      <td>Converts images and text into a shared 512-dimensional embedding space for similarity comparison</td>
+      <td>512-dim normalized float vector</td>
+    </tr>
+  </table>
+
+  <h3>3.3 Matching Pipeline</h3>
+  <div class="diagram-box">
+    📷 User Uploads Image<br>
+    <span class="arrow">↓</span><br>
+    BLIP → Auto-generated Caption<br>
+    <span class="arrow">↓</span><br>
+    CLIP → 512-dim Image Embedding<br>
+    <span class="arrow">↓</span><br>
+    Fusion: 95% Image Embedding + 5% Text Embedding (caption + user description)<br>
+    <span class="arrow">↓</span><br>
+    L2 Normalization → Final Embedding stored in DB<br>
+    <span class="arrow">↓</span><br>
+    Cosine Similarity vs. all opposite-type items (lost↔found)<br>
+    <span class="arrow">↓</span><br>
+    Matches above <strong>0.65 threshold</strong> → Surfaced to user, ranked by score
+  </div>
+
+  <h3>3.4 Why This Approach?</h3>
+  <ul>
+    <li><strong>Visual-first matching</strong> — Images are more reliable than user descriptions, which can be vague or inconsistent</li>
+    <li><strong>Embedding fusion</strong> — 95/5 weighting ensures exact image matches aren't impacted by varying text descriptions</li>
+    <li><strong>Pre-trained models</strong> — BLIP and CLIP are trained on millions of image-text pairs, providing strong zero-shot generalization without needing custom training data</li>
+    <li><strong>Local cosine similarity</strong> — Matching computation is done client-side in Dart for instant results without server latency</li>
+  </ul>
+
+  <h3>3.5 Model Links</h3>
+  <ul>
+    <li>BLIP: <a class="link" href="https://huggingface.co/Salesforce/blip-image-captioning-base">https://huggingface.co/Salesforce/blip-image-captioning-base</a></li>
+    <li>CLIP: <a class="link" href="https://huggingface.co/openai/clip-vit-base-patch32">https://huggingface.co/openai/clip-vit-base-patch32</a></li>
+  </ul>
+
+  <!-- ─── SECTION 4: IMPLEMENTATION ──────────────────────── -->
+  <div class="page-break"></div>
+  <h2>Section 4: Implementation</h2>
+
+  <h3>4.1 Technology Stack</h3>
+  <table>
+    <tr>
+      <th>Layer</th>
+      <th>Technology</th>
+      <th>Purpose</th>
+    </tr>
+    <tr>
+      <td>Frontend</td>
+      <td>Flutter (Dart)</td>
+      <td>Cross-platform mobile & web application</td>
+    </tr>
+    <tr>
+      <td>Backend API</td>
+      <td>FastAPI (Python)</td>
+      <td>AI model serving via REST API</td>
+    </tr>
+    <tr>
+      <td>AI Models</td>
+      <td>BLIP + CLIP (HuggingFace Transformers)</td>
+      <td>Image captioning + embedding generation</td>
+    </tr>
+    <tr>
+      <td>Database</td>
+      <td>Supabase (PostgreSQL)</td>
+      <td>User data, items, messages, real-time queries</td>
+    </tr>
+    <tr>
+      <td>Storage</td>
+      <td>Supabase Storage</td>
+      <td>Item image uploads & retrieval</td>
+    </tr>
+    <tr>
+      <td>Authentication</td>
+      <td>Supabase Auth</td>
+      <td>Email/password user authentication</td>
+    </tr>
+    <tr>
+      <td>Containerization</td>
+      <td>Docker</td>
+      <td>AI server deployment & portability</td>
+    </tr>
+    <tr>
+      <td>ML Framework</td>
+      <td>PyTorch + NumPy</td>
+      <td>Model inference & vector operations</td>
+    </tr>
+    <tr>
+      <td>HTTP Client</td>
+      <td>Dio (Dart)</td>
+      <td>Flutter ↔ AI Server communication</td>
+    </tr>
+  </table>
+
+  <h3>4.2 Implementation Steps</h3>
+  <ol>
+    <li><strong>Database Design & Setup</strong> — Designed PostgreSQL schema with three tables (<code>items</code>, <code>users</code>, <code>messages</code>) on Supabase, with Row Level Security (RLS) policies for data protection and a storage bucket for item images.</li>
+    <li><strong>AI Server Development</strong> — Built a FastAPI server with 6 endpoints: <code>/health</code>, <code>/caption</code>, <code>/embed</code>, <code>/embed-text</code>, <code>/match-bulk</code>, and <code>/process-item</code>. Models auto-load on startup with GPU/CPU auto-detection.</li>
+    <li><strong>Flutter App Development</strong> — Developed 9 screens: Login, Signup, Home (search + statistics dashboard), Report Item (with camera/gallery picker), Item Detail, AI Matches, Chat, Item Chats, and Profile.</li>
+    <li><strong>AI Integration</strong> — Connected the Flutter app to the AI server using Dio HTTP client. When a user uploads an image, it is sent to the <code>/process-item</code> endpoint which returns a caption + fused embedding.</li>
+    <li><strong>Matching System</strong> — Implemented cosine similarity matching locally in Dart. When viewing an item, the app fetches all opposite-type items and ranks them by embedding similarity.</li>
+    <li><strong>Chat & Messaging</strong> — Built a real-time chat system so item reporters and potential claimants can communicate directly within the app.</li>
+    <li><strong>Ownership Verification</strong> — Added a claim security flow where users must answer verification questions before an item is returned.</li>
+    <li><strong>Docker Containerization</strong> — Packaged the AI server in a Docker container with <code>docker-compose.yml</code> for one-command deployment.</li>
+  </ol>
+
+  <h3>4.3 System Architecture</h3>
+  <div class="diagram-box">
+    ┌─────────────────┐    HTTP/REST     ┌──────────────────┐<br>
+    │  Flutter App     │ ──────────────→ │  FastAPI Server   │<br>
+    │  (Dart/Web)      │ ←────────────── │  (Python/Docker)  │<br>
+    └────────┬────────┘                  └──────┬───────────┘<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│ Supabase SDK&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│ BLIP + CLIP<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;▼&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;▼<br>
+    ┌─────────────────────────────────────────────────────────┐<br>
+    │&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Supabase Cloud (PostgreSQL + Storage + Auth)&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br>
+    └─────────────────────────────────────────────────────────┘
+  </div>
+
+  <h3>4.4 GitHub Repository</h3>
+  <p><a class="link" href="https://github.com/yourusername/campus-lost-found">https://github.com/yourusername/campus-lost-found</a> <em>(replace with your actual repo link)</em></p>
+
+  <div class="footer">
+    Campus Lost & Found — AI-Powered Item Recovery System &nbsp;|&nbsp; Built with Flutter, FastAPI, BLIP, CLIP & Supabase
+  </div>
+
+</body>
+</html>
