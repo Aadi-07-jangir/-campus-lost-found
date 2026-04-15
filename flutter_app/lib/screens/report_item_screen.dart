@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +7,10 @@ import '../providers/items_provider.dart';
 import '../services/claim_security_service.dart';
 import '../utils/theme.dart';
 import 'matches_screen.dart';
+
+// Conditional import for web file picking
+import 'report_item_web_stub.dart'
+    if (dart.library.html) 'report_item_web_real.dart' as web_picker;
 
 class ReportItemScreen extends StatefulWidget {
   const ReportItemScreen({super.key});
@@ -43,6 +48,19 @@ class _ReportItemScreenState extends State<ReportItemScreen> {
 
   Future<void> _pickImage(ImageSource src) async {
     try {
+      // On Web, use HTML file input to avoid blob URL revocation issues
+      if (kIsWeb) {
+        final result = await web_picker.pickImageWeb();
+        if (result != null) {
+          setState(() {
+            _imgBytes = result.bytes;
+            _imgName = result.name;
+          });
+        }
+        return;
+      }
+
+      // Mobile path
       final p = await ImagePicker().pickImage(
           source: src, maxWidth: 1024, maxHeight: 1024, imageQuality: 85);
       if (p != null) {
