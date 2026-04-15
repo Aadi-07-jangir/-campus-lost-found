@@ -42,14 +42,31 @@ class _ReportItemScreenState extends State<ReportItemScreen> {
   }
 
   Future<void> _pickImage(ImageSource src) async {
-    final p = await ImagePicker().pickImage(
-        source: src, maxWidth: 1024, maxHeight: 1024, imageQuality: 85);
-    if (p != null) {
-      final b = await p.readAsBytes();
-      setState(() {
-        _imgBytes = b;
-        _imgName = p.name;
-      });
+    try {
+      final p = await ImagePicker().pickImage(
+          source: src, maxWidth: 1024, maxHeight: 1024, imageQuality: 85);
+      if (p != null) {
+        final b = await p.readAsBytes();
+        if (b.isNotEmpty) {
+          setState(() {
+            _imgBytes = b;
+            _imgName = p.name;
+          });
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Image file was empty. Please try again.')),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[IMAGE] Error picking image: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error picking image: $e')),
+        );
+      }
     }
   }
 
@@ -87,45 +104,56 @@ class _ReportItemScreenState extends State<ReportItemScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_imgBytes == null) {
+    if (_imgBytes == null || _imgBytes!.isEmpty) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Please add a photo')));
       return;
     }
     setState(() => _submitting = true);
-    final prov = context.read<ItemsProvider>();
-    final claimQuestions = List.generate(_questionControllers.length, (index) {
-      return ClaimQuestion(
-        prompt: _questionControllers[index].text.trim(),
-        answer: _answerControllers[index].text.trim(),
-      );
-    }).where((q) => q.prompt.isNotEmpty && q.answer.isNotEmpty).toList();
-    final item = await prov.reportItem(
-        type: _type,
-        title: _titleC.text.trim(),
-        description: _descC.text.trim(),
-        imageBytes: _imgBytes!,
-        fileName: _imgName ?? 'item.jpg',
-        location: _locC.text.trim(),
-        claimQuestions: claimQuestions);
-    setState(() => _submitting = false);
-    if (item != null && mounted) {
-      if (prov.matches.isNotEmpty) {
-        Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-                builder: (_) => MatchesScreen(reportedItem: item)));
-      } else {
+    try {
+      final prov = context.read<ItemsProvider>();
+      final claimQuestions = List.generate(_questionControllers.length, (index) {
+        return ClaimQuestion(
+          prompt: _questionControllers[index].text.trim(),
+          answer: _answerControllers[index].text.trim(),
+        );
+      }).where((q) => q.prompt.isNotEmpty && q.answer.isNotEmpty).toList();
+      debugPrint('[SUBMIT] Reporting $_type item: title=${_titleC.text.trim()}, imageSize=${_imgBytes!.length}, questions=${claimQuestions.length}');
+      final item = await prov.reportItem(
+          type: _type,
+          title: _titleC.text.trim(),
+          description: _descC.text.trim(),
+          imageBytes: _imgBytes!,
+          fileName: _imgName ?? 'item.jpg',
+          location: _locC.text.trim(),
+          claimQuestions: claimQuestions);
+      setState(() => _submitting = false);
+      if (item != null && mounted) {
+        if (prov.matches.isNotEmpty) {
+          Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => MatchesScreen(reportedItem: item)));
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content:
+                  Text('${_type == "lost" ? "Lost" : "Found"} item reported!'),
+              backgroundColor: AppTheme.success));
+          Navigator.pop(context, true);
+        }
+      } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content:
-                Text('${_type == "lost" ? "Lost" : "Found"} item reported!'),
-            backgroundColor: AppTheme.success));
-        Navigator.pop(context, true);
+            content: Text(prov.error ?? 'Failed to report item'),
+            backgroundColor: AppTheme.danger));
       }
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(prov.error ?? 'Failed'),
-          backgroundColor: AppTheme.danger));
+    } catch (e) {
+      debugPrint('[SUBMIT] Unhandled error: $e');
+      setState(() => _submitting = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: AppTheme.danger));
+      }
     }
   }
 
